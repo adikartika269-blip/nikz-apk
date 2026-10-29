@@ -9,76 +9,114 @@ import java.io.File
 class MainActivity : AppCompatActivity() {
 
     private lateinit var tvStatus: TextView
-    private lateinit var tvOutput: TextView
     private lateinit var btnExtract: Button
-    private lateinit var btnRun: Button
-    private lateinit var spinner: Spinner
+    private lateinit var container: LinearLayout
+    private lateinit var scroll: ScrollView
 
     private var extractedDir: File? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        tvStatus  = findViewById(R.id.tvStatus)
-        tvOutput  = findViewById(R.id.tvOutput)
-        btnExtract = findViewById(R.id.btnExtract)
-        btnRun    = findViewById(R.id.btnRun)
-        spinner   = findViewById(R.id.spinner)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 24)
+            setBackgroundColor(0xFF0D0D0D.toInt())
+        }
+
+        tvStatus = TextView(this).apply {
+            text = "Tekan Extract dulu"
+            setTextColor(0xFFAAAAAA.toInt())
+            textSize = 12f
+        }
+
+        btnExtract = Button(this).apply {
+            text = "⚡ EXTRACT ASSETS"
+        }
+
+        container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        scroll = ScrollView(this).apply {
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(tvStatus)
+                addView(btnExtract)
+                addView(container)
+            })
+        }
+
+        root.addView(scroll)
+        setContentView(root)
 
         btnExtract.setOnClickListener { doExtract() }
-        btnRun.setOnClickListener    { doRun() }
     }
 
     private fun doExtract() {
         scope.launch {
             tvStatus.text = "⏳ Cek root..."
             val msg = withContext(Dispatchers.IO) {
-
                 if (!RootExecutor.isRootAvailable())
-                    return@withContext "❌ Root tidak ada — install Magisk dulu"
-
-                tvStatus.post { tvStatus.text = "⏳ Extracting..." }
+                    return@withContext "❌ Root tidak ada"
                 val dir = NikzAssetManager.extractAll(this@MainActivity)
                 extractedDir = dir
-
-                tvStatus.post { tvStatus.text = "⏳ chmod..." }
                 NikzAssetManager.chmodAll(dir)
-
-                "✅ ${dir.listFiles()?.size ?: 0} files extracted ke:\n${dir.absolutePath}"
+                "✅ ${dir.listFiles()?.size ?: 0} files extracted"
             }
             tvStatus.text = msg
-
-            extractedDir?.let { dir ->
-                val names = dir.listFiles()?.map { it.name } ?: emptyList()
-                spinner.adapter = ArrayAdapter(
-                    this@MainActivity,
-                    android.R.layout.simple_spinner_dropdown_item,
-                    names
-                )
-            }
+            buildButtons()
         }
     }
 
-    private fun doRun() {
-        val dir = extractedDir ?: run {
-            tvOutput.text = "⚠️ Extract dulu"
-            return
-        }
-        val selected = spinner.selectedItem?.toString() ?: return
-        val binary = File(dir, selected)
+    private fun buildButtons() {
+        container.removeAllViews()
+        val dir = extractedDir ?: return
+        val files = dir.listFiles()?.sortedBy { it.name } ?: return
 
-        scope.launch {
-            tvOutput.text = "⏳ Running: $selected"
-            val result = withContext(Dispatchers.IO) {
-                RootExecutor.run(binary)
+        files.forEach { file ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 6, 0, 6)
             }
-            tvOutput.text = buildString {
-                appendLine(if (result.success) "✅ Exit ${result.exitCode}" else "❌ Exit ${result.exitCode}")
-                if (result.stdout.isNotEmpty()) { appendLine("\n── STDOUT ──"); appendLine(result.stdout) }
-                if (result.stderr.isNotEmpty()) { appendLine("\n── STDERR ──"); appendLine(result.stderr) }
+
+            val btn = Button(this).apply {
+                text = file.name.take(28)
+                textSize = 10f
+                layoutParams = LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
             }
+
+            val status = TextView(this).apply {
+                text = "–"
+                setTextColor(0xFFAAAAAA.toInt())
+                textSize = 11f
+                setPadding(12, 0, 0, 0)
+                layoutParams = LinearLayout.LayoutParams(0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+
+            btn.setOnClickListener {
+                status.text = "⏳"
+                status.setTextColor(0xFFFFFF00.toInt())
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        RootExecutor.run(file)
+                    }
+                    if (result.success) {
+                        status.text = "✅ OK"
+                        status.setTextColor(0xFF00FF88.toInt())
+                    } else {
+                        status.text = "❌ ${result.exitCode}"
+                        status.setTextColor(0xFFFF4444.toInt())
+                    }
+                }
+            }
+
+            row.addView(btn)
+            row.addView(status)
+            container.addView(row)
         }
     }
 
